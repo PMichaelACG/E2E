@@ -1,0 +1,428 @@
+QUECTOC CFG INCREMENT — FLAT LINUX COMMANDS
+Run each command separately. The DOCX explains every numbered step.
+Start with the code ZIP in your chosen working directory.
+
+=== Linux setup ===
+
+S01 — Check the processor architecture
+uname -m
+Purpose: Reports the host architecture. The native programs in this guide target x86-64 Linux.
+Check: Expect x86_64. Use an x86-64 environment if a different architecture appears.
+
+S02 — Check the Linux distribution
+cat /etc/os-release
+Purpose: Displays distribution and release information. The installation instructions below target Ubuntu 24.04.
+Check: Identify Ubuntu and VERSION_ID="24.04".
+
+S03 — Refresh package information
+sudo apt-get update
+Purpose: Downloads current package indexes so APT can locate packages and their dependencies. sudo grants administrative privileges for this command.
+Check: Wait for completion without repository errors. This refreshes indexes; it does not upgrade every installed package.
+
+S04 — Install the required tools
+sudo apt-get install -y build-essential flex bison m4 llvm-18 graphviz binutils unzip diffutils
+Purpose: Installs GCC and standard development files, Flex, Bison and its macro dependency, LLVM 18 tools, Graphviz, the assembler/linker tools, ZIP extraction and text comparison. -y accepts package installation prompts.
+Check: Complete successfully before continuing. Ubuntu repositories must include universe for LLVM and Graphviz.
+
+S05 — Check flex
+flex --version
+Purpose: Checks the scanner generator.
+Check: Reference build: Flex 2.6.4.
+
+S06 — Check bison
+bison --version
+Purpose: Checks the parser generator.
+Check: Reference build: Bison 3.8.2.
+
+S07 — Check gcc
+gcc --version
+Purpose: Checks the C compiler and driver used for linking.
+Check: A working GCC installation is required.
+
+S08 — Check llvm-as-18
+llvm-as-18 --version
+Purpose: Checks the LLVM assembler.
+Check: LLVM major version 18.
+
+S09 — Check opt-18
+opt-18 --version
+Purpose: Checks LLVM verification and graph-generation tooling.
+Check: LLVM major version 18.
+
+S10 — Check llc-18
+llc-18 --version
+Purpose: Checks the native code generator and registered targets.
+Check: LLVM major version 18 with the x86 target.
+
+S11 — Check lli-18
+lli-18 --version
+Purpose: Checks the LLVM execution tool.
+Check: LLVM major version 18.
+
+S12 — Check dot
+dot -V
+Purpose: Checks Graphviz, which renders DOT graph files.
+Check: A Graphviz version message; this tool normally writes it to stderr.
+
+=== Build the QuectoC compiler ===
+
+B01 — Extract the supplied code
+unzip E2E_CFG_Increment_Code.zip
+Purpose: Extracts the completed teaching increment. It already supports if-else, while and for.
+Check: The folder E2E_CFG_Increment appears. Use a fresh extraction location.
+
+B02 — Enter the compiler directory
+cd E2E_CFG_Increment
+Purpose: Makes subsequent relative paths refer to the supplied compiler source tree.
+Check: scanner.l, parser.y, main.c and codegen.c are in this directory.
+
+B03 — Inspect the source files
+ls
+Purpose: Lists the current directory contents.
+Check: Locate examples, scanner.l, parser.y and the C source/header files.
+
+B04 — Create the build directory
+mkdir -p build
+Purpose: Creates the destination for generated C files, objects and program outputs. -p also succeeds if the directory already exists.
+Check: A build directory is available.
+
+B05 — Generate the parser and token header
+bison -Wall -Werror -d --report=state -o build/parser.tab.c parser.y
+Purpose: Translates the grammar and its actions into C. -d also writes parser.tab.h for token codes and semantic values. --report=state writes a parser-state report. -Wall enables warnings and -Werror treats them as errors.
+Check: build/parser.tab.c, build/parser.tab.h and build/parser.output appear.
+
+B06 — Generate the scanner
+flex -o build/lex.yy.c scanner.l
+Purpose: Translates lexical rules into the C scanner. Its generated source includes parser.tab.h, so Bison runs first.
+Check: build/lex.yy.c appears. The supplied scanner uses noyywrap, so linking with -lfl is unnecessary.
+
+B07 — Enter the generated-file directory
+cd build
+Purpose: Places the object files produced by the next command in build.
+Check: The current directory is E2E_CFG_Increment/build.
+
+B08 — Compile all compiler components
+gcc -std=c11 -Wall -Wextra -Werror -pedantic -g -I.. -I. -D_POSIX_C_SOURCE=200809L -c ../ast.c ../ast_dot.c ../semantic.c ../semantic_dot.c ../codegen.c ../main.c parser.tab.c lex.yy.c
+Purpose: Compiles the eight C translation units to separate object files. -c stops before linking. -I.. finds authored headers; -I. finds the generated parser header. The POSIX feature macro exposes declarations used by generated scanner code. -g keeps debugging information.
+Check: Eight .o files appear in build. No executable is linked by this command.
+
+B09 — Link the QuectoC compiler
+gcc ast.o ast_dot.o semantic.o semantic_dot.o codegen.o main.o parser.tab.o lex.yy.o -o quectoc
+Purpose: Links the compiler object files and the standard C runtime into the QuectoC compiler executable.
+Check: build/quectoc is the compiler. It is different from the example executables produced later.
+
+B10 — Return to the source directory
+cd ..
+Purpose: Restores the working directory used by all example commands.
+Check: The current directory contains scanner.l again.
+
+B11 — Confirm the compiler exists
+ls -l build/quectoc
+Purpose: Shows the compiler file and its executable permissions.
+Check: The file exists and its permissions include x.
+
+=== If and else example ===
+
+I01 — Inspect the source
+cat examples/if_else.qc
+Purpose: Displays the exact QuectoC source used by the slides.
+Check: Read the condition and predict the output.
+
+I02 — Emit textual LLVM IR
+./build/quectoc --emit-llvm examples/if_else.qc > build/if_else.ll
+Purpose: Runs lexical analysis, parsing, AST construction and semantic actions, then emits LLVM IR. The shell redirects stdout into the .ll file. Diagnostics remain on stderr.
+Check: A successful compile produces a module. If compilation fails, stop; redirection may have created an empty file.
+
+I03 — Inspect the LLVM module
+cat build/if_else.ll
+Purpose: Displays the textual IR. Identify main, entry, storage instructions, comparisons and branch destinations.
+Check: Use the actual block names in this file when reading the CFG.
+
+I04 — Assemble LLVM bitcode
+llvm-as-18 build/if_else.ll -o build/if_else.bc
+Purpose: Converts LLVM assembly text to LLVM bitcode. This does not produce x86 machine code.
+Check: A .bc file appears if the IR parses successfully.
+
+I05 — Verify the module
+opt-18 -passes=verify -disable-output build/if_else.bc
+Purpose: Runs the LLVM verifier. -disable-output suppresses bitcode output, while diagnostics remain visible. No optimisation pipeline is requested.
+Check: Success is normally silent. Verification checks IR structure and types, not the intended program result.
+
+I06 — Execute through LLVM
+lli-18 build/if_else.bc > build/if_else.lli.txt
+Purpose: Executes the module through LLVM and captures its printed output for later comparison.
+Check: Expected captured output: 12. lli is not the standalone executable built below.
+
+I07 — Read the LLVM execution result
+cat build/if_else.lli.txt
+Purpose: Displays the captured stdout from the LLVM execution.
+Check: Expect 12 followed by a newline.
+
+I08 — Export the detailed CFG
+opt-18 -passes=dot-cfg -cfg-heat-colors=false -disable-output -cfg-func-name=main -cfg-dot-filename-prefix=build/if_else_full build/if_else.ll
+Purpose: Writes the CFG for main as DOT, including instructions inside each block. The prefix makes the output filename predictable.
+Check: The output is build/if_else_full.main.dot.
+
+I09 — Render the detailed CFG
+dot -Tsvg build/if_else_full.main.dot -o build/if_else_full.svg
+Purpose: Renders the DOT description to a scalable image. Open the SVG using the editor preview or a browser.
+Check: The graph contains the same basic blocks and instructions as the .ll file.
+
+I10 — Export the compact CFG
+opt-18 -passes=dot-cfg-only -cfg-heat-colors=false -disable-output -cfg-func-name=main -cfg-dot-filename-prefix=build/if_else_compact build/if_else.ll
+Purpose: Writes a second graph with block labels and edges, omitting instruction bodies.
+Check: The output is build/if_else_compact.main.dot.
+
+I11 — Render the compact CFG
+dot -Tsvg build/if_else_compact.main.dot -o build/if_else_compact.svg
+Purpose: Renders the compact graph used for side-by-side comparison with the IR.
+Check: Open this SVG beside the .ll file. Graph edges are possible transfers, not a recorded execution.
+
+I12 — Generate x86 assembly
+llc-18 -O0 -mtriple=x86_64-pc-linux-gnu -mcpu=x86-64 -relocation-model=pic -x86-asm-syntax=intel -filetype=asm build/if_else.ll -o build/if_else.s
+Purpose: Selects x86-64 Linux, a generic x86-64 CPU, position-independent addressing and Intel assembly syntax. -O0 keeps backend optimisation low; instruction selection and register allocation still occur. -filetype=asm requests text assembly.
+Check: The .s file is assembly source. Labels and register choices can vary with LLVM versions.
+
+I13 — Inspect the assembly
+cat build/if_else.s
+Purpose: Displays the emitted assembly, including directives, labels and instructions.
+Check: Identify the instructions corresponding to IR comparisons, transfers and updates.
+
+I14 — Assemble an object file
+gcc -m64 -c build/if_else.s -o build/if_else.o
+Purpose: Uses the GCC driver to invoke the assembler for 64-bit code. -c produces a relocatable object and stops before linking.
+Check: The .o file contains machine code but is not yet a complete executable.
+
+I15 — Link the native program
+gcc -m64 -no-pie build/if_else.o -o build/if_else
+Purpose: Links the object with Linux startup code and C library support, including printf. -no-pie selects a non-PIE executable for this classroom workflow.
+Check: build/if_else is the native executable. It has no .s or .o suffix.
+
+I16 — Run the native executable
+./build/if_else
+Purpose: Asks Linux to execute the linked x86-64 program. ./ specifies a path rather than a command searched in PATH.
+Check: Expect 12 printed on the terminal.
+
+I17 — Check the exit status
+echo $?
+Purpose: Prints the status of the immediately preceding command. Run it directly after the native executable.
+Check: Expect 0, meaning successful termination. This is separate from the printed calculation result.
+
+I18 — Capture native output
+./build/if_else > build/if_else.native.txt
+Purpose: Runs the same native program again and stores its stdout for comparison.
+Check: The output file should contain 12 and a newline.
+
+I19 — Compare the two executions
+diff -u build/if_else.lli.txt build/if_else.native.txt
+Purpose: Compares the LLVM execution output with the standalone native output. -u prints a readable difference if they disagree.
+Check: No output means the files match. Also compare with the predicted result; agreement alone does not prove correctness.
+
+I20 — Inspect linked machine code
+objdump -d -M intel --disassemble=main build/if_else
+Purpose: Disassembles main from the linked executable, using Intel operand order. This view includes instruction addresses and encoded bytes.
+Check: Connect the displayed instructions with the .s file and the CFG.
+
+=== While example ===
+
+W01 — Inspect the source
+cat examples/while_loop.qc
+Purpose: Displays the exact QuectoC source used by the slides.
+Check: Read the condition and predict the output.
+
+W02 — Emit textual LLVM IR
+./build/quectoc --emit-llvm examples/while_loop.qc > build/while_loop.ll
+Purpose: Runs lexical analysis, parsing, AST construction and semantic actions, then emits LLVM IR. The shell redirects stdout into the .ll file. Diagnostics remain on stderr.
+Check: A successful compile produces a module. If compilation fails, stop; redirection may have created an empty file.
+
+W03 — Inspect the LLVM module
+cat build/while_loop.ll
+Purpose: Displays the textual IR. Identify main, entry, storage instructions, comparisons and branch destinations.
+Check: Use the actual block names in this file when reading the CFG.
+
+W04 — Assemble LLVM bitcode
+llvm-as-18 build/while_loop.ll -o build/while_loop.bc
+Purpose: Converts LLVM assembly text to LLVM bitcode. This does not produce x86 machine code.
+Check: A .bc file appears if the IR parses successfully.
+
+W05 — Verify the module
+opt-18 -passes=verify -disable-output build/while_loop.bc
+Purpose: Runs the LLVM verifier. -disable-output suppresses bitcode output, while diagnostics remain visible. No optimisation pipeline is requested.
+Check: Success is normally silent. Verification checks IR structure and types, not the intended program result.
+
+W06 — Execute through LLVM
+lli-18 build/while_loop.bc > build/while_loop.lli.txt
+Purpose: Executes the module through LLVM and captures its printed output for later comparison.
+Check: Expected captured output: 3. lli is not the standalone executable built below.
+
+W07 — Read the LLVM execution result
+cat build/while_loop.lli.txt
+Purpose: Displays the captured stdout from the LLVM execution.
+Check: Expect 3 followed by a newline.
+
+W08 — Export the detailed CFG
+opt-18 -passes=dot-cfg -cfg-heat-colors=false -disable-output -cfg-func-name=main -cfg-dot-filename-prefix=build/while_loop_full build/while_loop.ll
+Purpose: Writes the CFG for main as DOT, including instructions inside each block. The prefix makes the output filename predictable.
+Check: The output is build/while_loop_full.main.dot.
+
+W09 — Render the detailed CFG
+dot -Tsvg build/while_loop_full.main.dot -o build/while_loop_full.svg
+Purpose: Renders the DOT description to a scalable image. Open the SVG using the editor preview or a browser.
+Check: The graph contains the same basic blocks and instructions as the .ll file.
+
+W10 — Export the compact CFG
+opt-18 -passes=dot-cfg-only -cfg-heat-colors=false -disable-output -cfg-func-name=main -cfg-dot-filename-prefix=build/while_loop_compact build/while_loop.ll
+Purpose: Writes a second graph with block labels and edges, omitting instruction bodies.
+Check: The output is build/while_loop_compact.main.dot.
+
+W11 — Render the compact CFG
+dot -Tsvg build/while_loop_compact.main.dot -o build/while_loop_compact.svg
+Purpose: Renders the compact graph used for side-by-side comparison with the IR.
+Check: Open this SVG beside the .ll file. Graph edges are possible transfers, not a recorded execution.
+
+W12 — Generate x86 assembly
+llc-18 -O0 -mtriple=x86_64-pc-linux-gnu -mcpu=x86-64 -relocation-model=pic -x86-asm-syntax=intel -filetype=asm build/while_loop.ll -o build/while_loop.s
+Purpose: Selects x86-64 Linux, a generic x86-64 CPU, position-independent addressing and Intel assembly syntax. -O0 keeps backend optimisation low; instruction selection and register allocation still occur. -filetype=asm requests text assembly.
+Check: The .s file is assembly source. Labels and register choices can vary with LLVM versions.
+
+W13 — Inspect the assembly
+cat build/while_loop.s
+Purpose: Displays the emitted assembly, including directives, labels and instructions.
+Check: Identify the instructions corresponding to IR comparisons, transfers and updates.
+
+W14 — Assemble an object file
+gcc -m64 -c build/while_loop.s -o build/while_loop.o
+Purpose: Uses the GCC driver to invoke the assembler for 64-bit code. -c produces a relocatable object and stops before linking.
+Check: The .o file contains machine code but is not yet a complete executable.
+
+W15 — Link the native program
+gcc -m64 -no-pie build/while_loop.o -o build/while_loop
+Purpose: Links the object with Linux startup code and C library support, including printf. -no-pie selects a non-PIE executable for this classroom workflow.
+Check: build/while_loop is the native executable. It has no .s or .o suffix.
+
+W16 — Run the native executable
+./build/while_loop
+Purpose: Asks Linux to execute the linked x86-64 program. ./ specifies a path rather than a command searched in PATH.
+Check: Expect 3 printed on the terminal.
+
+W17 — Check the exit status
+echo $?
+Purpose: Prints the status of the immediately preceding command. Run it directly after the native executable.
+Check: Expect 0, meaning successful termination. This is separate from the printed calculation result.
+
+W18 — Capture native output
+./build/while_loop > build/while_loop.native.txt
+Purpose: Runs the same native program again and stores its stdout for comparison.
+Check: The output file should contain 3 and a newline.
+
+W19 — Compare the two executions
+diff -u build/while_loop.lli.txt build/while_loop.native.txt
+Purpose: Compares the LLVM execution output with the standalone native output. -u prints a readable difference if they disagree.
+Check: No output means the files match. Also compare with the predicted result; agreement alone does not prove correctness.
+
+W20 — Inspect linked machine code
+objdump -d -M intel --disassemble=main build/while_loop
+Purpose: Disassembles main from the linked executable, using Intel operand order. This view includes instruction addresses and encoded bytes.
+Check: Connect the displayed instructions with the .s file and the CFG.
+
+=== For example ===
+
+F01 — Inspect the source
+cat examples/for_loop.qc
+Purpose: Displays the exact QuectoC source used by the slides.
+Check: Read the condition and predict the output.
+
+F02 — Emit textual LLVM IR
+./build/quectoc --emit-llvm examples/for_loop.qc > build/for_loop.ll
+Purpose: Runs lexical analysis, parsing, AST construction and semantic actions, then emits LLVM IR. The shell redirects stdout into the .ll file. Diagnostics remain on stderr.
+Check: A successful compile produces a module. If compilation fails, stop; redirection may have created an empty file.
+
+F03 — Inspect the LLVM module
+cat build/for_loop.ll
+Purpose: Displays the textual IR. Identify main, entry, storage instructions, comparisons and branch destinations.
+Check: Use the actual block names in this file when reading the CFG.
+
+F04 — Assemble LLVM bitcode
+llvm-as-18 build/for_loop.ll -o build/for_loop.bc
+Purpose: Converts LLVM assembly text to LLVM bitcode. This does not produce x86 machine code.
+Check: A .bc file appears if the IR parses successfully.
+
+F05 — Verify the module
+opt-18 -passes=verify -disable-output build/for_loop.bc
+Purpose: Runs the LLVM verifier. -disable-output suppresses bitcode output, while diagnostics remain visible. No optimisation pipeline is requested.
+Check: Success is normally silent. Verification checks IR structure and types, not the intended program result.
+
+F06 — Execute through LLVM
+lli-18 build/for_loop.bc > build/for_loop.lli.txt
+Purpose: Executes the module through LLVM and captures its printed output for later comparison.
+Check: Expected captured output: 3. lli is not the standalone executable built below.
+
+F07 — Read the LLVM execution result
+cat build/for_loop.lli.txt
+Purpose: Displays the captured stdout from the LLVM execution.
+Check: Expect 3 followed by a newline.
+
+F08 — Export the detailed CFG
+opt-18 -passes=dot-cfg -cfg-heat-colors=false -disable-output -cfg-func-name=main -cfg-dot-filename-prefix=build/for_loop_full build/for_loop.ll
+Purpose: Writes the CFG for main as DOT, including instructions inside each block. The prefix makes the output filename predictable.
+Check: The output is build/for_loop_full.main.dot.
+
+F09 — Render the detailed CFG
+dot -Tsvg build/for_loop_full.main.dot -o build/for_loop_full.svg
+Purpose: Renders the DOT description to a scalable image. Open the SVG using the editor preview or a browser.
+Check: The graph contains the same basic blocks and instructions as the .ll file.
+
+F10 — Export the compact CFG
+opt-18 -passes=dot-cfg-only -cfg-heat-colors=false -disable-output -cfg-func-name=main -cfg-dot-filename-prefix=build/for_loop_compact build/for_loop.ll
+Purpose: Writes a second graph with block labels and edges, omitting instruction bodies.
+Check: The output is build/for_loop_compact.main.dot.
+
+F11 — Render the compact CFG
+dot -Tsvg build/for_loop_compact.main.dot -o build/for_loop_compact.svg
+Purpose: Renders the compact graph used for side-by-side comparison with the IR.
+Check: Open this SVG beside the .ll file. Graph edges are possible transfers, not a recorded execution.
+
+F12 — Generate x86 assembly
+llc-18 -O0 -mtriple=x86_64-pc-linux-gnu -mcpu=x86-64 -relocation-model=pic -x86-asm-syntax=intel -filetype=asm build/for_loop.ll -o build/for_loop.s
+Purpose: Selects x86-64 Linux, a generic x86-64 CPU, position-independent addressing and Intel assembly syntax. -O0 keeps backend optimisation low; instruction selection and register allocation still occur. -filetype=asm requests text assembly.
+Check: The .s file is assembly source. Labels and register choices can vary with LLVM versions.
+
+F13 — Inspect the assembly
+cat build/for_loop.s
+Purpose: Displays the emitted assembly, including directives, labels and instructions.
+Check: Identify the instructions corresponding to IR comparisons, transfers and updates.
+
+F14 — Assemble an object file
+gcc -m64 -c build/for_loop.s -o build/for_loop.o
+Purpose: Uses the GCC driver to invoke the assembler for 64-bit code. -c produces a relocatable object and stops before linking.
+Check: The .o file contains machine code but is not yet a complete executable.
+
+F15 — Link the native program
+gcc -m64 -no-pie build/for_loop.o -o build/for_loop
+Purpose: Links the object with Linux startup code and C library support, including printf. -no-pie selects a non-PIE executable for this classroom workflow.
+Check: build/for_loop is the native executable. It has no .s or .o suffix.
+
+F16 — Run the native executable
+./build/for_loop
+Purpose: Asks Linux to execute the linked x86-64 program. ./ specifies a path rather than a command searched in PATH.
+Check: Expect 3 printed on the terminal.
+
+F17 — Check the exit status
+echo $?
+Purpose: Prints the status of the immediately preceding command. Run it directly after the native executable.
+Check: Expect 0, meaning successful termination. This is separate from the printed calculation result.
+
+F18 — Capture native output
+./build/for_loop > build/for_loop.native.txt
+Purpose: Runs the same native program again and stores its stdout for comparison.
+Check: The output file should contain 3 and a newline.
+
+F19 — Compare the two executions
+diff -u build/for_loop.lli.txt build/for_loop.native.txt
+Purpose: Compares the LLVM execution output with the standalone native output. -u prints a readable difference if they disagree.
+Check: No output means the files match. Also compare with the predicted result; agreement alone does not prove correctness.
+
+F20 — Inspect linked machine code
+objdump -d -M intel --disassemble=main build/for_loop
+Purpose: Disassembles main from the linked executable, using Intel operand order. This view includes instruction addresses and encoded bytes.
+Check: Connect the displayed instructions with the .s file and the CFG.
