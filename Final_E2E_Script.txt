@@ -1,0 +1,18 @@
+bison -d -o ./build/parser.tab.c parser.y
+
+flex -o ./build/lex.yy.c scanner.l
+
+gcc -I. -I/build \
+    ast.c ast_dot.c semantic.c semantic_dot.c codegen.c main.c \
+    ./build/parser.tab.c ./build/lex.yy.c \
+    -o ./build/quectoc
+
+# Compile if_else.qc through LLVM into an object file
+./build/quectoc --emit-llvm ./examples/if_else.qc |
+    llc-18 -O0 -filetype=obj -o ./build/if_else.o
+
+# Link the object file
+gcc -no-pie ./build/if_else.o -o ./build/if_else
+
+# Execute the program
+./build/if_else

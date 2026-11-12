@@ -1,0 +1,9 @@
+# Compile if_else.qc through LLVM into an object file
+./build/quectoc --emit-llvm ./examples/choose_factorials.qc |
+    llc-18 -O0 -filetype=obj -o ./build/choose_factorials.o
+
+# Link the object file
+gcc -no-pie ./build/choose_factorials.o -o ./build/choose_factorials
+
+# Execute the program
+./build/choose_factorials
